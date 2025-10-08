@@ -117,4 +117,54 @@ export class GithubService {
       return false;
     }
   }
+
+  async switchAccount(username: string): Promise<void> {
+    const configPath = path.join(this.homeDir, `.gitconfig-${username}`);
+    const mainConfig = path.join(this.homeDir, '.gitconfig');
+    const activeFile = path.join(this.homeDir, '.active-account');
+
+    try {
+      // Step 1: Check if the target account exists
+      await fs.access(configPath);
+    } catch {
+      console.log(chalk.red(`❌ Account '${username}' does not exist.`));
+      return;
+    }
+
+    // Step 2: Verify token (optional but recommended)
+    const token = await this.tokenService.getToken(username);
+    if (!token) {
+      console.log(chalk.yellow(`⚠️ No token found for '${username}'. Proceeding without verification...`));
+    } else {
+      const isValid = await this.verifyAccount(username, token);
+      if (!isValid) {
+        console.log(chalk.red(`❌ Invalid or expired token for '${username}'. Aborting switch.`));
+        return;
+      }
+    }
+
+    // Step 3: Replace global .gitconfig
+    try {
+      await fs.copyFile(configPath, mainConfig);
+    } catch (err) {
+      console.log(chalk.red(`❌ Failed to update .gitconfig: ${err.message}`));
+      return;
+    }
+
+    // Step 4: Persist the active account
+    try {
+      await fs.writeFile(activeFile, username, 'utf8');
+    } catch (err) {
+      console.log(chalk.red(`⚠️ Could not record active account: ${err.message}`));
+    }
+
+    console.log(chalk.green(`✅ Switched successfully to '${username}'.`));
+  }
+
+  async getActiveAccount(): Promise<string | null> {
+    if (!(await fs.pathExists(this.mainGitConfig))) return null;
+    const content = await fs.readFile(this.mainGitConfig, 'utf-8');
+    const match = content.match(/name\s*=\s*(.*)/);
+    return match ? match[1].trim() : null;
+  }
 }
