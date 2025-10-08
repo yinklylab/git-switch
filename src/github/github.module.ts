@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { GithubService } from './github.service';
-import { GithubController } from './github.controller';
+import { TokenModule } from '../token/token.module';
 
 @Module({
-  controllers: [GithubController],
+  imports: [TokenModule],
   providers: [GithubService],
 })
 export class GithubModule {}
