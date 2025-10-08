@@ -167,4 +167,40 @@ export class GithubService {
     const match = content.match(/name\s*=\s*(.*)/);
     return match ? match[1].trim() : null;
   }
+
+  async cloneRepoWithAccount(repoUrl: string, accountAlias: string, targetDir: string) {
+    const git = simpleGit();
+    const sshUrl = repoUrl.replace('github.com', `${accountAlias}`);
+    await git.clone(sshUrl, targetDir);
+  }
+
+  async keyExistsOnGithub(username: string, publicKey: string, token: string): Promise<boolean> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/user/keys`, {
+        headers: { Authorization: `token ${token}` },
+      });
+
+      const keys = response.data as { key: string }[];
+      return keys.some((k) => k.key.trim() === publicKey.trim());
+    } catch (err) {
+      console.error(chalk.red('⚠️ Could not verify SSH key on GitHub:'), err.response?.data || err.message);
+      return false;
+    }
+  }
+
+  async uploadKey(publicKey: string, token: string, title: string): Promise<void> {
+    const response = await fetch('https://api.github.com/user/keys', {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title, key: publicKey }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`GitHub key upload failed: ${err}`);
+    }
+  }
 }
