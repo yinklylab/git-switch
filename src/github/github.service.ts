@@ -74,4 +74,47 @@ export class GithubService {
       return { valid: false, reason: 'network_error' };
     }
   }
+
+  async setupGitConfig(accountName: string, email: string): Promise<void> {
+    const gitConfigPath = path.join(os.homedir(), `.gitconfig-${accountName}`);
+    const gitConfigContent = `
+    [user]
+      name = ${accountName}
+      email = ${email}
+    `;
+
+    await fs.writeFile(gitConfigPath, gitConfigContent);
+  }
+
+  async listAccounts(): Promise<{ name: string; validToken: boolean }[]> {
+    const files = await fs.readdir(this.homeDir);
+    const accountFiles = files.filter((f) => f.startsWith('.gitconfig-'));
+    const accounts: { name: string; validToken: boolean }[] = [];
+
+    for (const file of accountFiles) {
+      const accountName = file.replace('.gitconfig-', '');
+      const token = await this.tokenService.getToken(accountName);
+      let verification = { valid: false };
+
+      if (token) {
+        verification = await this.verifyAccount(accountName, token);
+      }
+
+      accounts.push({ name: accountName, validToken: verification.valid });
+    }
+
+    return accounts;
+  }
+
+  async deleteAccountConfig(accountName: string): Promise<boolean> {
+    const filePath = path.join(this.homeDir, `.gitconfig-${accountName}`);
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+      console.log(chalk.yellow(`🗑️  Deleted ${filePath}`));
+      return true;
+    } else {
+      console.log(chalk.gray(`ℹ️  No local config found for ${accountName}.`));
+      return false;
+    }
+  }
 }
