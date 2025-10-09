@@ -77,4 +77,39 @@ export class SshService {
 
     console.log(`✅ SSH config updated at ${configPath}`);
   }
+
+  async getPublicKey(keyName: string): Promise<string> {
+    let pubPath = path.join(this.sshDir, `${keyName}`);
+    if (!pubPath.endsWith('.pub')) pubPath += '.pub';
+
+    if (!(await fs.pathExists(pubPath))) {
+      throw new Error(`Public key not found at ${pubPath}`);
+    }
+
+    return (await fs.readFile(pubPath, 'utf8')).trim();
+  }
+
+  async removeFromSshConfig(accountName: string): Promise<void> {
+    const configPath = path.join(this.sshDir, 'config');
+    if (!fs.existsSync(configPath)) {
+      console.log(chalk.gray('ℹ️ No SSH config file found.'));
+      return;
+    }
+
+    let content = await fs.promises.readFile(configPath, 'utf8');
+
+    const regex = new RegExp(
+      `(# gitSwitch-${accountName}[\\s\\S]*?(?=\\n# gitSwitch-|$))|(Host github-${accountName}[\\s\\S]*?(?=\\nHost |$))`,
+      'g'
+    );
+
+    const newContent = content.replace(regex, '').trim();
+
+    if (newContent !== content) {
+      await fs.promises.writeFile(configPath, newContent + '\n', 'utf8');
+      console.log(chalk.yellow(`🧹 Removed SSH config for ${accountName}.`));
+    } else {
+      console.log(chalk.gray(`ℹ️ No SSH config entry found for ${accountName}.`));
+    }
+  }
 }
