@@ -196,4 +196,62 @@ export class CliService {
       console.log('⚠️  No account selected to switch.');
     }
   }
+
+  async deleteAccount(accountName?: string) {
+    console.log(chalk.cyan('\n🧹 GitHub Account Cleanup\n'));
+
+    let _accountToDelete = accountName;
+    if (!_accountToDelete) {
+      const accounts = await this.githubService.listAccounts();
+
+      if (accounts.length === 0) {
+        console.log(chalk.yellow('⚠️ No accounts found.'));
+        return;
+      }
+
+      const { selected } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selected',
+          message: 'Select the account you want to delete:',
+          choices: accounts,
+        },
+      ]);
+
+      _accountToDelete = selected;
+    }
+    const { confirmDelete } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirmDelete',
+        message: `Are you sure you want to delete all local data for '${_accountToDelete}'?`,
+        default: false,
+      },
+    ]);
+
+    if (!confirmDelete) {
+      console.log(chalk.gray('❎ Deletion canceled.'));
+      return;
+    }
+
+    try {
+      await this.tokenService.deleteToken(_accountToDelete as string);
+      const isConfigDeleted = await this.githubService.deleteAccountConfig(_accountToDelete as string);
+      const isSSHDeleted = await this.sshService.deleteSSHKeys(_accountToDelete as string);
+      await this.sshService.removeFromSshConfig(_accountToDelete as string);
+
+      if (isConfigDeleted && isSSHDeleted) {
+        console.log(chalk.green(`\n✅ Successfully removed account '${_accountToDelete}'.\n`));
+        return;
+      }
+      console.error(chalk.red(`❌ Could not find account: '${_accountToDelete}'`));
+    } catch (err: any) {
+      console.error(chalk.red(`❌ Error deleting account '${_accountToDelete}': ${err.message}`));
+    }
+  }
+
+  async verifyAccount(username: string, token?: string): Promise<void> {
+    console.log(chalk.cyan(`\n🔍 Verifying GitHub account: ${username}...`));
+    await this.githubService.verifyAccount(username, token);
+  }
 }
