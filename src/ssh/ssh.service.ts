@@ -112,4 +112,49 @@ export class SshService {
       console.log(chalk.gray(`ℹ️ No SSH config entry found for ${accountName}.`));
     }
   }
+
+  async copyPublicKeyToClipboard(keyName: string): Promise<boolean> {
+    let pubPath = path.join(this.sshDir, `${keyName}.pub`);
+    if (!pubPath.endsWith('.pub')) pubPath += '.pub';
+
+    if (!(await fs.pathExists(pubPath))) return false;
+
+    try {
+      if (process.platform === 'win32') {
+        await execAsync(`type "${pubPath}" | clip`);
+      } else if (process.platform === 'darwin') {
+        await execAsync(`pbcopy < "${pubPath}"`);
+      } else {
+        await execAsync(`xclip -selection clipboard < "${pubPath}"`);
+      }
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  async deleteSSHKeys(accountName: string): Promise<boolean> {
+    const privateKeyPath = path.join(this.sshDir, `id_rsa_${accountName}`);
+    const publicKeyPath = `${privateKeyPath}.pub`;
+    const altPrivateKeyPath = path.join(this.sshDir, `${accountName}`);
+    const altPublicKeyPath = `${altPrivateKeyPath}.pub`;
+
+    const deleted: string[] = [];
+
+    for (const file of [privateKeyPath, publicKeyPath, altPrivateKeyPath, altPublicKeyPath]) {
+      if (fs.existsSync(file)) {
+        await fs.promises.unlink(file);
+        deleted.push(file);
+      }
+    }
+
+    if (deleted.length > 0) {
+      console.log(chalk.yellow(`🗑️  Deleted SSH keys for ${accountName}:`));
+      deleted.forEach(f => console.log(chalk.gray(`- ${f}`)));
+      return true;
+    } else {
+      console.log(chalk.gray(`ℹ️  No SSH keys found for ${accountName}.`));
+      return false;
+    }
+  }
 }
