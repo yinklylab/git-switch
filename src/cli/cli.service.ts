@@ -143,4 +143,57 @@ export class CliService {
     console.log(`\n${chalk.greenBright('🎉 You’re all set!')} ${chalk.white('Use your new identity via:')}`);
     console.log(chalk.cyan(`git@${hostAlias}:<username>/<repo>.git\n`));
   }
+
+  async listAccounts() {
+    console.log(chalk.cyan.bold('\n📜 Listing configured GitHub accounts...\n'));
+
+    const accounts = await this.githubService.listAccounts();
+    const active = await this.githubService.getActiveAccount();
+
+    if (!accounts.length) {
+      console.log(chalk.yellow('⚠️ No configured GitHub accounts found.'));
+      console.log(chalk.gray('\n💡 Run `gitswitch setup` to add one.\n'));
+      return;
+    }
+
+    console.log(chalk.white('🔐 Configured Accounts:\n'));
+    accounts.forEach((acc, i) => {
+      const isActive = acc.name === active;
+      const mark = isActive ? chalk.greenBright('⭐ Active') : '';
+      console.log(`${chalk.cyan(i + 1 + '.')}\t${chalk.white(acc.name)}\t${mark}`);
+    });
+
+    console.log();
+  }
+
+  async switchAccount(accountName?: string) {
+    console.log(`🔀 Switching to account: ${accountName || '(prompting...)'}`);
+    let target = accountName;
+
+    if (!target) {
+      const accounts = await this.githubService.listAccounts();
+      if (accounts.length === 0) {
+        console.log('⚠️  No accounts configured yet.');
+        return;
+      }
+
+      const { selected } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selected',
+          message: 'Select an account to activate:',
+          choices: accounts,
+        },
+      ]);
+
+      target = selected;
+    }
+
+    if (typeof target === 'string') {
+      await this.githubService.switchAccount(target);
+      console.log(`\n🔁 Active account switched to: ${target}`);
+    } else {
+      console.log('⚠️  No account selected to switch.');
+    }
+  }
 }
