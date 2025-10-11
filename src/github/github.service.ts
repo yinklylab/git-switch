@@ -23,9 +23,8 @@ export class GithubService {
       console.log(chalk.yellow("⚠️ No GitHub token provided. Checking if username exists..."));
       try {
         const response = await axios.get(`${this.baseUrl}/${username}`, {
-          headers: { "User-Agent": "gitSwitch" },
+          headers: { "User-Agent": "GitSwitch" },
         });
-        console.log(response)
         if (response.status === 200 && response.data?.login?.toLowerCase() === username.toLowerCase()) {
           console.log(chalk.green(`✅ GitHub account '${username}' exists.`));
           return { valid: true };
@@ -34,6 +33,11 @@ export class GithubService {
           return { valid: false, reason: "not_found" };
         }
       } catch (error: any) {
+        if (error?.includes('ENOTFOUND')) {
+          console.error(chalk.red('❌ Verification! Please check your internet connection'));
+          return { valid: false, reason: 'ENOTFOUND' }
+        }
+
         if (error.response?.status === 404) {
           console.error(chalk.red(`❌ GitHub account '${username}' not found.`));
           return { valid: false, reason: 'not_found' };
@@ -48,7 +52,7 @@ export class GithubService {
       const response = await axios.get("https://api.github.com/user", {
         headers: {
           Authorization: `token ${token}`,
-          "User-Agent": "gitSwitch",
+          "User-Agent": "GitSwitch",
         },
       });
 
