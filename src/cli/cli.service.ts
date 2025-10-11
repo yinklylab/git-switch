@@ -17,8 +17,8 @@ export class CliService {
   ) { }
 
   async runSetup() {
-    console.log(chalk.yellow(figlet.textSync('gitSwitch', { horizontalLayout: 'full' })));
-    console.log(chalk.cyan.bold('\n🚀 Welcome to gitSwitch: Multi-account GitHub Setup Wizard\n'));
+    console.log(chalk.yellow(figlet.textSync('GitSwitch', { horizontalLayout: 'full' })));
+    console.log(chalk.cyan.bold('\n🚀 Welcome to GitSwitch: Multi-account GitHub Setup Wizard\n'));
 
     const { accountName, email, hostAlias } = await inquirer.prompt([
       { name: 'accountName', message: 'Enter GitHub account name:' },
@@ -30,9 +30,8 @@ export class CliService {
       },
     ]);
 
-    // check if the email is valid
     if (!/\S+@\S+\.\S+/.test(email)) {
-      console.log(chalk.red('❌ Invalid email format. Please try again.'));
+      console.log(chalk.red(`❌ \'${email}\' does not look like an email`));
       return;
     }
 
