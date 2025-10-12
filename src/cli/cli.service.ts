@@ -17,9 +17,6 @@ export class CliService {
   ) { }
 
   async runSetup() {
-    console.log(chalk.yellow(figlet.textSync('GitSwitch', { horizontalLayout: 'full' })));
-    console.log(chalk.cyan.bold('\n🚀 Welcome to GitSwitch: Multi-account GitHub Setup Wizard\n'));
-
     const { accountName, email, hostAlias } = await inquirer.prompt([
       { name: 'accountName', message: 'Enter GitHub account name:' },
       { name: 'email', message: 'Enter email associated with this GitHub account:' },
@@ -252,5 +249,95 @@ export class CliService {
   async verifyAccount(username: string, token?: string): Promise<void> {
     console.log(chalk.cyan(`\n🔍 Verifying GitHub account: ${username}...`));
     await this.githubService.verifyAccount(username, token);
+  }
+
+  async showMainMenu() {
+    console.log(chalk.yellow.bold(
+      figlet.textSync('Git Switch', { horizontalLayout: 'full' })
+    ));
+
+    console.log(chalk.cyan.bold('\n🚀 Git Switch: Multi-account GitHub Management 🚀'));
+    console.log(chalk.white('   Easily manage and switch between your personal and work GitHub accounts.\n'));
+
+    const choices = [
+      {
+        name: chalk.green.bold('⚙️  Setup New Account') + chalk.dim(' - Run the initial account setup wizard.'),
+        value: 'setup'
+      },
+      {
+        name: chalk.blue.bold('📋  List Accounts') + chalk.dim(' - See all currently configured GitHub profiles.'),
+        value: 'list'
+      },
+      {
+        name: chalk.magenta.bold('🔄  Switch Account') + chalk.dim(' - Change your active global Git user.'),
+        value: 'switch'
+      },
+      {
+        name: chalk.red.bold('🗑️  Delete Account') + chalk.dim(' - Remove an account configuration from Git Switch.'),
+        value: 'delete'
+      },
+      {
+        name: chalk.yellow.bold('✔️  Verify Account') + chalk.dim(' - Check if a username or token is valid on GitHub.'),
+        value: 'verify'
+      },
+    ];
+
+    const { command } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'command',
+        message: chalk.hex('#FF8C00')('▶️  Select an action:'),
+        choices: choices,
+      },
+    ]);
+
+    switch (command) {
+      case 'setup':
+        await this.runSetup();
+        break;
+      case 'list':
+        await this.listAccounts();
+        break;
+      case 'switch':
+        const { accountToSwitch } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'accountToSwitch',
+            message: chalk.magenta('Enter the account name you want to switch to:'),
+            validate: (input) => input.trim().length > 0 ? true : 'Account name cannot be empty.',
+          },
+        ]);
+        await this.switchAccount(accountToSwitch);
+        break;
+      case 'delete':
+        const { accountToDelete } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'accountToDelete',
+            message: chalk.red('Enter the name of the account to DELETE:'),
+            validate: (input) => input.trim().length > 0 ? true : 'Account name cannot be empty.',
+          },
+        ]);
+        await this.deleteAccount(accountToDelete);
+        break;
+      case 'verify':
+        const { username, token } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'username',
+            message: chalk.yellow('Enter the GitHub username to verify:'),
+            validate: (input) => input.trim().length > 0 ? true : 'Username cannot be empty.',
+          },
+          {
+            type: 'input',
+            name: 'token',
+            message: chalk.yellow('Enter the optional GitHub Personal Access Token (press Enter to skip):')
+          },
+        ]);
+        await this.verifyAccount(username, token);
+        break;
+      default:
+        console.log(chalk.yellow('Command not recognized.'));
+    }
   }
 }

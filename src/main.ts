@@ -2,67 +2,75 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { CliService } from './cli/cli.service';
 import chalk from 'chalk';
+import { Command } from 'commander';
+
+const program = new Command();
+const CLI_NAME = 'gitswitch';
+const APP_VERSION = '1.0.0';
 
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: false,
   });
   const cliService = app.get(CliService);
-  const [command, option1, option2] = process.argv.slice(2);
-
-  const showHelp = () => {
-    console.log(chalk.cyan('\nAvailable Commands:'));
-    console.log(chalk.green('  setup') + '             → Run GitHub account setup wizard');
-    console.log(chalk.green('  list') + '              → List all configured GitHub accounts');
-    console.log(chalk.green('  switch <account>') + '  → Switch active GitHub account');
-    console.log(chalk.green('  delete <account>') + '  → Delete a specific GitHub account');
-    console.log(chalk.green('  verify <user> [tk]') + ' → Verify a GitHub username or token');
-    console.log('');
-  };
 
   try {
-    switch (command) {
-      case 'list':
+    program
+      .name(CLI_NAME)
+      .description('A CLI tool to manage and switch between multiple GitHub accounts.')
+      .version(APP_VERSION, '-v, --version');
+
+    program
+      .action(async () => {
+        await cliService.showMainMenu(); 
+      });
+
+    program
+      .command('setup') 
+      .description('Run GitHub account setup wizard')
+      .action(async () => {
+        await cliService.runSetup(); 
+      });
+
+    program
+      .command('list')
+      .description('List all configured GitHub accounts')
+      .action(async () => {
         await cliService.listAccounts();
-        break;
+      });
 
-      case 'switch':
-        await cliService.switchAccount(option1);
-        break;
+    program
+      .command('switch <account>')
+      .description('Switch the active GitHub account')
+      .action(async (account: string) => {
+        await cliService.switchAccount(account);
+      });
 
-      case 'delete':
-        await cliService.deleteAccount(option1);
-        break;
+    program
+      .command('delete <account>')
+      .description('Delete a specific GitHub account configuration')
+      .action(async (account: string) => {
+        await cliService.deleteAccount(account);
+      });
 
-      case 'verify':
-        if (!option1) {
-          console.log(chalk.yellow('⚠️ Usage: gitswitch verify <username> [token]\n'));
-        } else {
-          await cliService.verifyAccount(option1, option2);
-        }
-        break;
+    program
+      .command('verify <username> [token]')
+      .description('Verify a GitHub username or token')
+      .action(async (username: string, token: string) => {
+        await cliService.verifyAccount(username, token);
+      });
+      
+    await program.parseAsync(process.argv);
 
-      case 'setup':
-      case undefined:
-        await cliService.runSetup();
-        break;
-
-      case 'help':
-      case '--help':
-      case '-h':
-        showHelp();
-        break;
-
-      default:
-        console.log(chalk.red(`\n❌ Unknown command: ${command}\n`));
-        showHelp();
-        break;
-    }
   } catch (err: any) {
-    console.error(chalk.red(`❌ Error: ${err.message}`));
+    console.error(chalk.red(`\n❌ Error: ${err.message}`));
+    
     if (process.env.DEBUG) {
       console.error(chalk.gray(err.stack));
     }
+    
+    process.exitCode = 1; 
+
   } finally {
     await app.close();
   }
