@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { exec } from 'child_process';
+import * as lockfile from 'proper-lockfile';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -63,19 +64,30 @@ export class SshService {
 
     await fs.ensureFile(configPath);
 
-    const currentConfig = (await fs.pathExists(configPath))
-      ? await fs.readFile(configPath, 'utf-8')
-      : '';
+    let release: (() => Promise<void>) | undefined;
 
-    if (currentConfig.includes(`Host ${hostAlias}`)) {
-      console.log(`⚠️ SSH config for '${hostAlias}' already exists — skipping.`);
-      return;
+    try {
+      
+      release = await lockfile.lock(configPath);
+  
+      const currentConfig = (await fs.pathExists(configPath))
+        ? await fs.readFile(configPath, 'utf-8')
+        : '';
+  
+      if (currentConfig.includes(`Host ${hostAlias}`)) {
+        console.log(`⚠️ SSH config for '${hostAlias}' already exists — skipping.`);
+        return;
+      }
+  
+      console.log(`🧩 Updating SSH config with alias '${hostAlias}'...`);
+      await fs.appendFile(configPath, configEntry);
+  
+      console.log(`✅ SSH config updated at ${configPath}`);
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to update SSH config:`), error);
+    } finally {
+      if (release) await release();
     }
-
-    console.log(`🧩 Updating SSH config with alias '${hostAlias}'...`);
-    await fs.appendFile(configPath, configEntry);
-
-    console.log(`✅ SSH config updated at ${configPath}`);
   }
 
   async getPublicKey(keyName: string): Promise<string> {
@@ -96,20 +108,30 @@ export class SshService {
       return;
     }
 
-    let content = await fs.promises.readFile(configPath, 'utf8');
+    let release: (() => Promise<void>) | undefined;
 
-    const regex = new RegExp(
-      `(# gitSwitch-${accountName}[\\s\\S]*?(?=\\n# gitSwitch-|$))|(Host github-${accountName}[\\s\\S]*?(?=\\nHost |$))`,
-      'g'
-    );
+    try {
+      release = await lockfile.lock(configPath);
 
-    const newContent = content.replace(regex, '').trim();
-
-    if (newContent !== content) {
-      await fs.promises.writeFile(configPath, newContent + '\n', 'utf8');
-      console.log(chalk.yellow(`🧹 Removed SSH config for ${accountName}.`));
-    } else {
-      console.log(chalk.gray(`ℹ️ No SSH config entry found for ${accountName}.`));
+      let content = await fs.promises.readFile(configPath, 'utf8');
+  
+      const regex = new RegExp(
+        `(# gitSwitch-${accountName}[\\s\\S]*?(?=\\n# gitSwitch-|$))|(Host github-${accountName}[\\s\\S]*?(?=\\nHost |$))`,
+        'g'
+      );
+  
+      const newContent = content.replace(regex, '').trim();
+  
+      if (newContent !== content) {
+        await fs.promises.writeFile(configPath, newContent + '\n', 'utf8');
+        console.log(chalk.yellow(`🧹 Removed SSH config for ${accountName}.`));
+      } else {
+        console.log(chalk.gray(`ℹ️ No SSH config entry found for ${accountName}.`));
+      }
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to update SSH config:`), error);
+    } finally {
+      if (release) await release();
     }
   }
 

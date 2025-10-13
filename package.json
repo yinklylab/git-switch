@@ -1,8 +1,8 @@
 {
   "name": "git-switch",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "Effortlessly manage multiple GitHub accounts, SSH keys, and tokens from a single interactive CLI.",
+  "author": "Oluyinka Abubakar",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -30,6 +30,7 @@
     "fs-extra": "^11.3.2",
     "inquirer": "^8.2.7",
     "keytar": "^7.9.0",
+    "proper-lockfile": "^4.1.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "simple-git": "^3.28.0"

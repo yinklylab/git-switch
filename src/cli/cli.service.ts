@@ -19,7 +19,14 @@ export class CliService {
   async runSetup() {
     const { accountName, email, hostAlias } = await inquirer.prompt([
       { name: 'accountName', message: 'Enter GitHub account name:' },
-      { name: 'email', message: 'Enter email associated with this GitHub account:' },
+      {
+        name: 'email', message: 'Enter email associated with this GitHub account:', validate: (input: string) => {
+          if (/\S+@\S+\.\S+/.test(input)) {
+            return true;
+          }
+          return '❌ This does not look like a valid email address.';
+        }
+      },
       {
         name: 'hostAlias',
         message: 'Enter a custom host alias (e.g., github-work):',
@@ -27,13 +34,7 @@ export class CliService {
       },
     ]);
 
-    if (!/\S+@\S+\.\S+/.test(email)) {
-      console.log(chalk.red(`❌ \'${email}\' does not look like an email`));
-      return;
-    }
-
-
-    let token = await this.tokenService.getToken(accountName);
+    let token: string | null = await this.tokenService.getToken(accountName);
     let verified = false;
 
     if (token) {
@@ -71,19 +72,34 @@ export class CliService {
         token = tokenInput.trim() || '';
 
         const verification = await this.githubService.verifyAccount(accountName, token as string);
-        if (verification.valid) {
-          if (token) {
+        if (token) {
+          if (verification.valid) {
             console.log(chalk.green('✅ Token verified and saved securely for future use.'));
             await this.tokenService.saveToken(token, accountName);
+            verified = true;
+          } else {
+            console.log(chalk.red('❌ Invalid token — not saved. Proceeding without token.'));
+            token = null;
           }
-          verified = true;
         } else {
-          console.log(chalk.red('❌ Invalid token — not saved. Proceeding without token.'));
-          token = null;
+          console.log(chalk.yellow('⚠️ Empty token provided. Proceeding without token.'));
         }
       } else {
-        console.log(chalk.yellow('⚠️ No token provided — skipping GitHub verification.'));
+        const verification = await this.githubService.verifyAccount(accountName);
+        if (verification.valid) {
+          console.log(chalk.yellow('⚠️ No token provided — skipping GitHub verification.'));
+          console.log(chalk.green('✅ Username exists on GitHub.'));
+          verified = true;
+        } else {
+          console.error(chalk.red('\n❌ Account verification failed. The username does not exist or a network error occurred. Aborting setup.'));
+          return;
+        }
       }
+    }
+
+    if (!verified) {
+      console.error(chalk.red('❌ Setup aborted because account could not be verified.'));
+      return;
     }
 
     const keyPath = await this.sshService.generateKey(email, accountName);

@@ -3,7 +3,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
 import simpleGit from 'simple-git';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import chalk from 'chalk';
 import { TokenService } from '../token/token.service';
 
@@ -18,6 +18,7 @@ export class GithubService {
     valid: boolean;
     reason?: string;
     authenticatedUser?: string;
+    hasToken?: boolean;
   }> {
     if (!token) {
       console.log(chalk.yellow("⚠️ No GitHub token provided. Checking if username exists..."));
@@ -25,26 +26,30 @@ export class GithubService {
         const response = await axios.get(`${this.baseUrl}/${username}`, {
           headers: { "User-Agent": "GitSwitch" },
         });
-        if (response.status === 200 && response.data?.login?.toLowerCase() === username.toLowerCase()) {
+
+        const { login } = response.data || {};
+
+        if (response.status === 200 && login?.toLowerCase() === username.toLowerCase()) {
           console.log(chalk.green(`✅ GitHub account '${username}' exists.`));
-          return { valid: true };
-        } else {
-          console.log(chalk.red(`❌ GitHub account '${username}' not found.`));
-          return { valid: false, reason: "not_found" };
+          return { valid: true, hasToken: false };
         }
-      } catch (error: any) {
-        if (error?.includes('ENOTFOUND')) {
-          console.error(chalk.red('❌ Verification! Please check your internet connection'));
-          return { valid: false, reason: 'ENOTFOUND' }
-        }
+        console.log(chalk.red(`❌ GitHub account '${username}' not found.`));
+        return { valid: false, reason: "api_error", hasToken: false };
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          if (error.response?.status === 404) {
+            console.error(chalk.red(`❌ GitHub account '${username}' not found.`));
+            return { valid: false, reason: 'not_found', hasToken: false };
+          }
 
-        if (error.response?.status === 404) {
-          console.error(chalk.red(`❌ GitHub account '${username}' not found.`));
-          return { valid: false, reason: 'not_found' };
+          if (error.code === 'ENOTFOUND') {
+            console.error(chalk.red('❌ Verification failed! Please check your internet connection'));
+            return { valid: false, reason: 'ENOTFOUND', hasToken: false };
+          }
         }
-
-        console.error(chalk.red(`⚠️ Error verifying GitHub account:`), error.message);
-        return { valid: false, reason: "network_error" };
+         const errorMessage = (error as Error)?.message || String(error);
+        console.error(chalk.red(`⚠️ Error verifying GitHub account:`), errorMessage);
+        return { valid: false, reason: "network_error", hasToken: false };
       }
     }
 
@@ -56,26 +61,33 @@ export class GithubService {
         },
       });
 
-      const authenticatedUser = response.data?.login;
+      const { login: authenticatedUser } = response.data || {};
+      if (!authenticatedUser) {
+        console.error(chalk.red('⚠️ Received unexpected response from GitHub API /user.'));
+        return { valid: false, reason: 'api_error', hasToken: true };
+      }
+
       if (authenticatedUser.toLowerCase() === username.toLowerCase()) {
         console.log(chalk.green(`✅ Verified token belongs to '${username}'.`));
-        return { valid: true, authenticatedUser };
+        return { valid: true, authenticatedUser, hasToken: true };
       } else {
         console.log(
           chalk.red(
             `❌ Token belongs to '${authenticatedUser}', not '${username}'. Please check the token.`
           )
         );
-        return { valid: false, reason: 'wrong_user', authenticatedUser };
+        return { valid: false, reason: 'wrong_user', authenticatedUser, hasToken: true };
       }
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        console.log(chalk.red("❌ Invalid or expired GitHub token."));
-        return { valid: false, reason: 'unauthorized' };
-      } else {
-        console.log(chalk.red(`⚠️ Error verifying token: ${error.message}`));
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          console.log(chalk.red("❌ Invalid or expired GitHub token."));
+          return { valid: false, reason: 'unauthorized', hasToken: true };
+        }
       }
-      return { valid: false, reason: 'network_error' };
+      const errorMessage = (error as Error)?.message || String(error);
+      console.log(chalk.red(`⚠️ Error verifying token: ${errorMessage}`));
+      return { valid: false, reason: 'network_error', hasToken: true };
     }
   }
 
@@ -128,14 +140,12 @@ export class GithubService {
     const activeFile = path.join(this.homeDir, '.active-account');
 
     try {
-      // Step 1: Check if the target account exists
       await fs.access(configPath);
     } catch {
       console.log(chalk.red(`❌ Account '${username}' does not exist.`));
       return;
     }
 
-    // Step 2: Verify token (optional but recommended)
     const token = await this.tokenService.getToken(username);
     if (!token) {
       console.log(chalk.yellow(`⚠️ No token found for '${username}'. Proceeding without verification...`));
@@ -147,7 +157,6 @@ export class GithubService {
       }
     }
 
-    // Step 3: Replace global .gitconfig
     try {
       await fs.copyFile(configPath, mainConfig);
     } catch (err) {
@@ -155,7 +164,6 @@ export class GithubService {
       return;
     }
 
-    // Step 4: Persist the active account
     try {
       await fs.writeFile(activeFile, username, 'utf8');
     } catch (err) {
