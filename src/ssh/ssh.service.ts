@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { exec } from 'child_process';
+import { exec, spawnSync } from 'child_process';
 import * as lockfile from 'proper-lockfile';
 import * as fs from 'fs-extra';
 import * as path from 'path';
@@ -20,13 +20,16 @@ export class SshService {
   }
 
   async generateKey(email: string, keyName: string): Promise<string> {
+    await this.ensureSshInstalled();
     await fs.ensureDir(this.sshDir);
     await fs.chmod(this.sshDir, 0o700);
 
     const keyPath = path.join(this.sshDir, keyName);
+    const privateExists = await fs.pathExists(keyPath);
+    const publicExists = await fs.pathExists(`${keyPath}.pub`);
 
-    if (await fs.pathExists(`${keyPath}.pub`)) {
-      console.log(`⚠️ SSH key for '${keyName}' already exists — skipping generation.`);
+    if (privateExists && publicExists) {
+      console.log(chalk.yellow(`⚠️ SSH key for '${keyName}' already exists — skipping generation.`));
       return keyPath;
     }
 
@@ -37,7 +40,7 @@ export class SshService {
       console.log(`✅ SSH key successfully created at: ${keyPath}`);
       return keyPath;
     } catch (err) {
-      console.error(`❌ Failed to generate SSH key:`, err);
+      console.error(chalk.red('❌ Failed to generate SSH key:'), err.stderr || err.message);
       throw err;
     }
   }
@@ -178,5 +181,43 @@ export class SshService {
       console.log(chalk.gray(`ℹ️  No SSH keys found for ${accountName}.`));
       return false;
     }
+  }
+
+  private isSshInstalled(): boolean {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    const result = spawnSync(cmd, ['ssh-keygen'], { stdio: 'ignore' });
+    return result.status === 0;
+  }
+
+  private async ensureSshInstalled(): Promise<void> {
+    if (this.isSshInstalled()) return;
+
+    console.log(chalk.yellow('⚠️  SSH utilities not found on this system.'));
+
+    if (process.platform === 'win32') {
+      console.log(chalk.cyan('\nAttempting to install OpenSSH via Windows optional features...'));
+      try {
+        await execAsync(
+          'powershell -Command "Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"',
+        );
+        console.log(chalk.green('✅ OpenSSH installed successfully.'));
+        return;
+      } catch (err: any) {
+        const stderr = err?.stderr?.toString() || err?.message || 'Unknown error';
+        if (stderr.includes('Access is denied')) {
+          console.error(chalk.red('❌ Permission denied. Run your terminal as Administrator and try again.'));
+        } else {
+          console.error(chalk.red('❌ Failed to auto-install OpenSSH:'), stderr);
+        }
+      }
+    } else if (process.platform === 'linux') {
+      console.log(chalk.cyan('\nTry installing manually using:'));
+      console.log(chalk.gray('sudo apt install openssh-client'));
+    } else if (process.platform === 'darwin') {
+      console.log(chalk.gray('\nmacOS usually includes SSH by default. If missing, run:'));
+      console.log(chalk.gray('xcode-select --install'));
+    }
+
+    throw new Error('SSH not installed. Please install it and rerun this command.');
   }
 }
