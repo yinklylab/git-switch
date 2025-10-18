@@ -1,12 +1,14 @@
+#!/usr/bin/env node
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { CliService } from './cli/cli.service';
 import chalk from 'chalk';
 import { Command } from 'commander';
+import pkg from '../package.json';
 
 const program = new Command();
 const CLI_NAME = 'gitswitch';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = pkg.version;
 
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -40,7 +42,7 @@ async function bootstrap() {
       });
 
     program
-      .command('switch <account>')
+      .command('use <account>')
       .description('Switch the active GitHub account')
       .action(async (account: string) => {
         await cliService.switchAccount(account);

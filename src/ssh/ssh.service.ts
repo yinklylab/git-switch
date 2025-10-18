@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { exec } from 'child_process';
+import { exec, spawnSync } from 'child_process';
+import * as lockfile from 'proper-lockfile';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -19,13 +20,16 @@ export class SshService {
   }
 
   async generateKey(email: string, keyName: string): Promise<string> {
+    await this.ensureSshInstalled();
     await fs.ensureDir(this.sshDir);
     await fs.chmod(this.sshDir, 0o700);
 
     const keyPath = path.join(this.sshDir, keyName);
+    const privateExists = await fs.pathExists(keyPath);
+    const publicExists = await fs.pathExists(`${keyPath}.pub`);
 
-    if (await fs.pathExists(`${keyPath}.pub`)) {
-      console.log(`⚠️ SSH key for '${keyName}' already exists — skipping generation.`);
+    if (privateExists && publicExists) {
+      console.log(chalk.yellow(`⚠️ SSH key for '${keyName}' already exists — skipping generation.`));
       return keyPath;
     }
 
@@ -36,7 +40,7 @@ export class SshService {
       console.log(`✅ SSH key successfully created at: ${keyPath}`);
       return keyPath;
     } catch (err) {
-      console.error(`❌ Failed to generate SSH key:`, err);
+      console.error(chalk.red('❌ Failed to generate SSH key:'), err.stderr || err.message);
       throw err;
     }
   }
@@ -63,19 +67,30 @@ export class SshService {
 
     await fs.ensureFile(configPath);
 
-    const currentConfig = (await fs.pathExists(configPath))
-      ? await fs.readFile(configPath, 'utf-8')
-      : '';
+    let release: (() => Promise<void>) | undefined;
 
-    if (currentConfig.includes(`Host ${hostAlias}`)) {
-      console.log(`⚠️ SSH config for '${hostAlias}' already exists — skipping.`);
-      return;
+    try {
+      
+      release = await lockfile.lock(configPath);
+  
+      const currentConfig = (await fs.pathExists(configPath))
+        ? await fs.readFile(configPath, 'utf-8')
+        : '';
+  
+      if (currentConfig.includes(`Host ${hostAlias}`)) {
+        console.log(`⚠️ SSH config for '${hostAlias}' already exists — skipping.`);
+        return;
+      }
+  
+      console.log(`🧩 Updating SSH config with alias '${hostAlias}'...`);
+      await fs.appendFile(configPath, configEntry);
+  
+      console.log(`✅ SSH config updated at ${configPath}`);
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to update SSH config:`), error);
+    } finally {
+      if (release) await release();
     }
-
-    console.log(`🧩 Updating SSH config with alias '${hostAlias}'...`);
-    await fs.appendFile(configPath, configEntry);
-
-    console.log(`✅ SSH config updated at ${configPath}`);
   }
 
   async getPublicKey(keyName: string): Promise<string> {
@@ -96,20 +111,30 @@ export class SshService {
       return;
     }
 
-    let content = await fs.promises.readFile(configPath, 'utf8');
+    let release: (() => Promise<void>) | undefined;
 
-    const regex = new RegExp(
-      `(# gitSwitch-${accountName}[\\s\\S]*?(?=\\n# gitSwitch-|$))|(Host github-${accountName}[\\s\\S]*?(?=\\nHost |$))`,
-      'g'
-    );
+    try {
+      release = await lockfile.lock(configPath);
 
-    const newContent = content.replace(regex, '').trim();
-
-    if (newContent !== content) {
-      await fs.promises.writeFile(configPath, newContent + '\n', 'utf8');
-      console.log(chalk.yellow(`🧹 Removed SSH config for ${accountName}.`));
-    } else {
-      console.log(chalk.gray(`ℹ️ No SSH config entry found for ${accountName}.`));
+      let content = await fs.promises.readFile(configPath, 'utf8');
+  
+      const regex = new RegExp(
+        `(# gitSwitch-${accountName}[\\s\\S]*?(?=\\n# gitSwitch-|$))|(Host github-${accountName}[\\s\\S]*?(?=\\nHost |$))`,
+        'g'
+      );
+  
+      const newContent = content.replace(regex, '').trim();
+  
+      if (newContent !== content) {
+        await fs.promises.writeFile(configPath, newContent + '\n', 'utf8');
+        console.log(chalk.yellow(`🧹 Removed SSH config for ${accountName}.`));
+      } else {
+        console.log(chalk.gray(`ℹ️ No SSH config entry found for ${accountName}.`));
+      }
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to update SSH config:`), error);
+    } finally {
+      if (release) await release();
     }
   }
 
@@ -156,5 +181,43 @@ export class SshService {
       console.log(chalk.gray(`ℹ️  No SSH keys found for ${accountName}.`));
       return false;
     }
+  }
+
+  private isSshInstalled(): boolean {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    const result = spawnSync(cmd, ['ssh-keygen'], { stdio: 'ignore' });
+    return result.status === 0;
+  }
+
+  private async ensureSshInstalled(): Promise<void> {
+    if (this.isSshInstalled()) return;
+
+    console.log(chalk.yellow('⚠️  SSH utilities not found on this system.'));
+
+    if (process.platform === 'win32') {
+      console.log(chalk.cyan('\nAttempting to install OpenSSH via Windows optional features...'));
+      try {
+        await execAsync(
+          'powershell -Command "Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"',
+        );
+        console.log(chalk.green('✅ OpenSSH installed successfully.'));
+        return;
+      } catch (err: any) {
+        const stderr = err?.stderr?.toString() || err?.message || 'Unknown error';
+        if (stderr.includes('Access is denied')) {
+          console.error(chalk.red('❌ Permission denied. Run your terminal as Administrator and try again.'));
+        } else {
+          console.error(chalk.red('❌ Failed to auto-install OpenSSH:'), stderr);
+        }
+      }
+    } else if (process.platform === 'linux') {
+      console.log(chalk.cyan('\nTry installing manually using:'));
+      console.log(chalk.gray('sudo apt install openssh-client'));
+    } else if (process.platform === 'darwin') {
+      console.log(chalk.gray('\nmacOS usually includes SSH by default. If missing, run:'));
+      console.log(chalk.gray('xcode-select --install'));
+    }
+
+    throw new Error('SSH not installed. Please install it and rerun this command.');
   }
 }
