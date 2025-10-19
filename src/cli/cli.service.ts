@@ -203,7 +203,7 @@ export class CliService {
 
     if (typeof target === 'string') {
       await this.githubService.switchAccount(target);
-      console.log(`\n🔁 Active account switched to: ${target}`);
+      return;
     } else {
       console.log('⚠️  No account selected to switch.');
     }
